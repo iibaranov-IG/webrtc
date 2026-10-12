@@ -259,6 +259,39 @@ a=rtpmap:111 opus/48000/2
 		assert.Equal(t, midID, 7)
 		assert.True(t, midAudioEnabled)
 		assert.False(t, midVideoEnabled)
+
+		for _, testCase := range []struct {
+			name       string
+			port       int
+			bundleOnly bool
+			remoteRID  int
+			midID      int
+			ridID      int
+		}{
+			{"Rejected", 0, false, 3, 7, 5},
+			{"Active", 9, false, 3, 5, 3},
+			{"Swap IDs", 9, false, 7, 5, 7},
+			{"Bundle only", 0, true, 3, 5, 3},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				m := mediaEngine.copy()
+				assert.NoError(t, m.updateFromRemoteDescription(mustParse(headerExtensions)))
+				desc := mustParse(strings.NewReplacer(
+					"extmap:7", "extmap:5", "extmap:5", fmt.Sprintf("extmap:%d", testCase.remoteRID),
+				).Replace(headerExtensions))
+				media := desc.MediaDescriptions[1]
+				media.MediaName.Port.Value = testCase.port
+				if testCase.bundleOnly {
+					media.WithPropertyAttribute("bundle-only")
+				}
+				assert.NoError(t, m.updateFromRemoteDescription(desc))
+				params := m.getRTPParametersByKind(RTPCodecTypeAudio, []RTPTransceiverDirection{RTPTransceiverDirectionSendonly})
+				assert.ElementsMatch(t, []RTPHeaderExtensionParameter{
+					{URI: sdp.SDESMidURI, ID: testCase.midID},
+					{URI: sdp.SDESRTPStreamIDURI, ID: testCase.ridID},
+				}, params.HeaderExtensions)
+			})
+		}
 	})
 
 	t.Run("Prefers exact codec matches", func(t *testing.T) {
